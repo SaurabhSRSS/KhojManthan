@@ -6,3 +6,7 @@ export default function Home() {
     </main>
   );
 }
+
+
+
+{SIMPLIFY HOME PAGE CODE
