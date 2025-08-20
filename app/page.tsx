@@ -9,4 +9,4 @@ export default function Home() {
 
 
 
-{SIMPLIFY HOME PAGE CODE
+SIMPLIFY HOME PAGE CODE
