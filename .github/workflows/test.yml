@@ -1,0 +1,16 @@
+name: Test Secrets
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-secret:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Confirm secret is available (without printing it)
+        run: echo "Secret KM_TOKEN is set!"
+        env:
+          KM_TOKEN: ${{ secrets.KM_TOKEN }}
