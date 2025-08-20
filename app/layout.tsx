@@ -1,15 +1,8 @@
-import "./globals.css";
-import type { Metadata } from "next";
-
-export const metadata: Metadata = {
+// app/layout.tsx
+export const metadata = {
   title: "KhojManthan",
   description: "India’s First Indigenous File Search Engine",
+  icons: {
+    icon: "/favicon.png", // यहां public में पड़ी favicon file का path
+  },
 };
-
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en">
-      <body>{children}</body>
-    </html>
-  );
-}
