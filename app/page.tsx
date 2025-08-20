@@ -6,22 +6,37 @@ export const metadata = {
 
 export default function Page() {
   return (
-    <main className="min-h-screen flex items-center justify-center bg-black text-white">
-      <div className="text-center space-y-3">
-        <h1 className="text-3xl md:text-5xl font-semibold">🚀 KhojManthan</h1>
-        <p className="opacity-80">
+    <main
+      style={{
+        minHeight: "100vh",
+        display: "grid",
+        placeItems: "center",
+        padding: "40px",
+        textAlign: "center",
+        fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
+      }}
+    >
+      <div>
+        <h1 style={{ fontSize: "32px", marginBottom: "8px" }}>🚀 KhojManthan</h1>
+        <p style={{ opacity: 0.8, marginBottom: "20px" }}>
           India’s First Indigenous File Search Engine
         </p>
 
-        <div className="mt-6">
-          <a
-            href="https://github.com/SaurabhSRSS/KhojManthan"
-            className="inline-block px-4 py-2 rounded-xl border border-white/20 hover:border-white/40 transition"
-          >
-            ⭐ Star on GitHub
-          </a>
-        </div>
+        <a
+          href="https://github.com/SaurabhSRSS/KhojManthan"
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            display: "inline-block",
+            padding: "10px 16px",
+            border: "1px solid #e5e7eb",
+            borderRadius: "8px",
+            textDecoration: "none",
+          }}
+        >
+          ⭐ Star on GitHub
+        </a>
       </div>
     </main>
   );
-}
+                    }
