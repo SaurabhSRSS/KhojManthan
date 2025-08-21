@@ -1,0 +1,27 @@
+name: Redeploy (one-click)
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: Optional note for the redeploy commit
+        required: false
+        default: manual redeploy
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Create empty commit (triggers Vercel)
+        run: |
+          git commit --allow-empty -m "ci: redeploy — ${{ github.event.inputs.message }}"
+      - name: Push
+        run: git push
