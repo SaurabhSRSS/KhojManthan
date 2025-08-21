@@ -1,8 +1,21 @@
 // app/layout.tsx
-export const metadata = {
+import "./globals.css";
+import type { Metadata } from "next";
+import type { ReactNode } from "react";
+import { Geist } from "geist/font/sans";
+import { Geist_Mono } from "geist/font/mono";
+
+export const metadata: Metadata = {
   title: "KhojManthan",
   description: "India’s First Indigenous File Search Engine",
-  icons: {
-    icon: "/favicon.png", // यहां public में पड़ी favicon file का path
-  },
 };
+
+export default function RootLayout({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en">
+      <body className={`${Geist.variable} ${Geist_Mono.variable}`}>
+        {children}
+      </body>
+    </html>
+  );
+        }
