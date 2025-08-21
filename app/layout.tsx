@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 <<<<<<< HEAD
 import type { ReactNode } from "react";
 =======
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
+import Header from "../components/Header";
+import Footer from "../components/Footer";
 >>>>>>> be76705 (feat(ui): homepage + dashboard + header/footer + styles)
 
 export const metadata: Metadata = {
