@@ -1,112 +1,103 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState } from "react";
 
 type UploadedMeta = { name: string; size: number; type: string };
+
+const ALLOWED = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+  "text/plain",
+];
 
 export default function DashboardPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<UploadedMeta[]>([]);
-  const inputRef = useRef<HTMLInputElement | null>(null);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
 
-    const fileInput = inputRef.current;
-    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+    const fd = new FormData(e.currentTarget);
+    const file = fd.get("file") as File | null;
+
+    if (!file || file.size === 0) {
       setError("Please choose a file first.");
       return;
     }
 
-    const file = fileInput.files[0];
-    const form = new FormData();
-    form.append("file", file);
+    // Validate type (PDF / DOCX / TXT)
+    if (!ALLOWED.includes(file.type)) {
+      setError("Only PDF, DOCX, or TXT files are allowed.");
+      return;
+    }
 
-    setBusy(true);
+    // Optional: 10 MB limit
+    if (file.size > 10 * 1024 * 1024) {
+      setError("File too large (max 10 MB).");
+      return;
+    }
+
     try {
-      const res = await fetch("/api/upload", { method: "POST", body: form });
-      const data = await res.json();
+      setBusy(true);
 
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || "Upload failed");
-      }
+      // 🔒 Storage integration will come next; for now we just “mock” success
+      await new Promise((r) => setTimeout(r, 600));
 
-      // show in list (local state for now)
-      setItems((prev) => [{ name: data.file.name, size: data.file.size, type: data.file.type }, ...prev]);
-      // clear input
-      fileInput.value = "";
-    } catch (err: any) {
-      setError(err?.message || "Something went wrong");
+      setItems((prev) => [
+        { name: file.name, size: file.size, type: file.type },
+        ...prev,
+      ]);
+
+      // Reset the form so user can choose another file
+      (e.currentTarget as HTMLFormElement).reset();
+    } catch (err) {
+      setError("Upload failed. Please try again.");
     } finally {
       setBusy(false);
     }
   }
 
-  function prettyBytes(n: number) {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`;
-    return `${(n / 1024 ** 3).toFixed(1)} GB`;
-  }
-
   return (
-    <main className="container" style={{ padding: "32px 0" }}>
-      <h1 style={{ marginTop: 0, fontSize: 28 }}>Dashboard</h1>
-      <p className="sub" style={{ marginTop: 6 }}>Upload your documents (PDF / DOCX / TXT). Storage plug-in next.</p>
+    <div className="dash">
+      <h1>Dashboard</h1>
+      <p>Upload your documents (PDF / DOCX / TXT). Storage plug-in next.</p>
 
-      <form onSubmit={onSubmit} style={{ display: "grid", gap: 12, marginTop: 18 }}>
+      <form onSubmit={onSubmit} className="card" noValidate>
         <input
-          ref={inputRef}
           type="file"
+          name="file"           // 👈 FormData yahin se uthayega
           accept=".pdf,.docx,.txt"
-          disabled={busy}
-          style={{
-            padding: 10, borderRadius: 10, border: "1px solid rgba(255,255,255,.15)",
-            background: "var(--panel, #13131a)", color: "var(--text, #e7e7ea)"
-          }}
         />
-        <div style={{ display: "flex", gap: 12 }}>
-          <button
-            className="btn primary"
-            type="submit"
-            disabled={busy}
-          >
-            {busy ? "Uploading…" : "Upload"}
+        <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
+          <button className="btn primary" type="submit" disabled={busy}>
+            {busy ? "Uploading..." : "Upload"}
           </button>
-          <a className="btn" href="/" style={{ textDecoration: "none" }}>← Home</a>
+          <a className="btn" href="/">← Home</a>
         </div>
-      </form>
 
-      {error && (
-        <div style={{
-          marginTop: 14, padding: "10px 12px", borderRadius: 10,
-          border: "1px solid rgba(255,0,0,.25)", background: "rgba(255,0,0,.08)"
-        }}>
-          ⚠️ {error}
-        </div>
-      )}
-
-      <section style={{ marginTop: 26 }}>
-        <h3 style={{ margin: "0 0 10px" }}>Recent uploads</h3>
-        {items.length === 0 ? (
-          <div className="card" style={{ opacity: .85 }}>
-            <p>No files yet. Upload one to see it here.</p>
-          </div>
-        ) : (
-          <div className="grid">
-            {items.map((f, i) => (
-              <div key={i} className="card">
-                <strong>{f.name}</strong>
-                <p style={{ marginTop: 6, opacity: .85 }}>
-                  {f.type || "unknown"} • {prettyBytes(f.size)}
-                </p>
-              </div>
-            ))}
+        {error && (
+          <div className="alert" role="alert" style={{ marginTop: 12 }}>
+            {error}
           </div>
         )}
-      </section>
-    </main>
+      </form>
+
+      <h2 style={{ marginTop: 28 }}>Recent uploads</h2>
+      <div className="card">
+        {items.length === 0 ? (
+          <p>No files yet. Upload one to see it here.</p>
+        ) : (
+          <ul>
+            {items.map((f, i) => (
+              <li key={i}>
+                <strong>{f.name}</strong> • {(f.size / 1024).toFixed(1)} KB
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
   );
-}
+        }
