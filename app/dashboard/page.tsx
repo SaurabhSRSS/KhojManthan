@@ -4,13 +4,9 @@ import { useRef, useState } from "react";
 
 type UploadedMeta = { name: string; size: number; type: string };
 
-const ALLOWED = new Set([
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "text/plain",
-]);
-const MAX_MB = 10;
-const MAX_FILES_AT_ONCE = 10;
+// ✅ any file type allowed
+const MAX_MB = 10;                 // per-file limit
+const MAX_FILES_AT_ONCE = 10;      // one shot limit
 
 export default function DashboardPage() {
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -30,14 +26,10 @@ export default function DashboardPage() {
 
     const files = Array.from(el.files).slice(0, MAX_FILES_AT_ONCE);
 
-    // Per-file validation
+    // only size-check now (no type restrictions)
     const valid: File[] = [];
     const problems: string[] = [];
     for (const f of files) {
-      if (!ALLOWED.has(f.type)) {
-        problems.push(`${f.name}: unsupported type (${f.type || "unknown"})`);
-        continue;
-      }
       if (f.size > MAX_MB * 1024 * 1024) {
         problems.push(`${f.name}: too large (> ${MAX_MB} MB)`);
         continue;
@@ -46,17 +38,13 @@ export default function DashboardPage() {
     }
 
     if (valid.length === 0) {
-      setError(
-        problems.length
-          ? problems.join(" • ")
-          : "No valid files selected."
-      );
+      setError(problems.length ? problems.join(" • ") : "No valid files selected.");
       return;
     }
 
     setBusy(true);
     try {
-      // Upload sequentially (server expects one "file" per request)
+      // upload sequentially (API expects one "file" per request)
       for (const f of valid) {
         const fd = new FormData();
         fd.append("file", f);
@@ -73,7 +61,6 @@ export default function DashboardPage() {
       setError(err?.message || "Upload failed. Please try again.");
     } finally {
       setBusy(false);
-      // reset picker (so same file(s) reselect ho sakey)
       if (inputRef.current) inputRef.current.value = "";
     }
   }
@@ -82,7 +69,8 @@ export default function DashboardPage() {
     <div className="container" style={{ maxWidth: 900, margin: "0 auto", padding: "2rem 1rem" }}>
       <h1 className="text-5xl font-bold mb-6">Dashboard</h1>
       <p className="text-zinc-300 mb-8">
-        Upload your documents (PDF / DOCX / TXT).<br />Storage plug-in next.
+        Upload <b>any file type</b> (limit {MAX_MB} MB each).<br />
+        Storage plug-in next.
       </p>
 
       <form onSubmit={onSubmit} className="rounded-2xl p-4 md:p-6 bg-zinc-900/40 border border-zinc-800">
@@ -90,8 +78,7 @@ export default function DashboardPage() {
           <input
             ref={inputRef}
             type="file"
-            accept=".pdf,.docx,.txt"
-            multiple
+            multiple   // ← multi-select on
             className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-gradient-to-r file:from-indigo-500 file:to-sky-500 file:text-white file:cursor-pointer"
           />
           <button
@@ -105,7 +92,7 @@ export default function DashboardPage() {
         </div>
 
         <p className="mt-3 text-sm text-zinc-400">
-          Allowed: PDF, DOCX, TXT • Max {MAX_FILES_AT_ONCE} files • ≤ {MAX_MB} MB each
+          Up to {MAX_FILES_AT_ONCE} files per batch • ≤ {MAX_MB} MB each
         </p>
 
         {error && (
@@ -130,7 +117,7 @@ export default function DashboardPage() {
                   <span className="font-medium">{f.name}</span>
                 </div>
                 <span className="text-sm text-zinc-400">
-                  {f.type || "unknown"} · {(f.size / 1024).toFixed(1)} KB
+                  {(f.type || "unknown").toString()} · {(f.size / 1024).toFixed(1)} KB
                 </span>
               </li>
             ))}
@@ -139,4 +126,4 @@ export default function DashboardPage() {
       </section>
     </div>
   );
-}
+    }
