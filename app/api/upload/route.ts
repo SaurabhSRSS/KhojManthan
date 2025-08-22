@@ -1,23 +1,17 @@
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
-  try {
-    const form = await req.formData();
-    const file = form.get("file");
+  const formData = await req.formData();
+  const file = formData.get("file") as File | null;
 
-    if (!file || typeof file === "string") {
-      return NextResponse.json({ ok: false, error: "No file received" }, { status: 400 });
-    }
-
-    // Note: abhi storage nahi; sirf meta return kar rahe
-    const f = file as File;
-    return NextResponse.json({
-      ok: true,
-      file: { name: f.name, size: f.size, type: f.type }
-    });
-  } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err?.message ?? "Upload failed" }, { status: 500 });
+  if (!file) {
+    return NextResponse.json({ error: "No file provided" }, { status: 400 });
   }
-}
 
-export const runtime = "nodejs"; // keep on Node runtime
+  return NextResponse.json({
+    ok: true,
+    name: file.name,
+    size: file.size,
+    type: file.type,
+  });
+}
