@@ -1,47 +1,35 @@
-// app/api/upload/route.ts
-import { NextResponse } from "next/server";
-import { recentFiles, KMFile } from "@/lib/store";
+import { NextRequest, NextResponse } from "next/server";
+import { recentFiles, KMFile } from "../../../lib/store";
 
-export async function POST(req: Request) {
-  const form = await req.formData();
-  const files = form.getAll("files") as File[];
+export async function POST(req: NextRequest) {
+  try {
+    const formData = await req.formData();
+    const files = formData.getAll("files") as File[];
 
-  if (!files || files.length === 0) {
-    return NextResponse.json({ ok: false, error: "No files found" }, { status: 400 });
-  }
+    if (!files || files.length === 0) {
+      return NextResponse.json({ ok: false, error: "No files provided" }, { status: 400 });
+    }
 
-  // allowlist + limits
-  const allowed = new Set([
-    "application/pdf",
-    "text/plain",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
-  ]);
-  const MAX = 10 * 1024 * 1024; // 10 MB
+    const accepted: KMFile[] = [];
+    const rejected: string[] = [];
 
-  const accepted: KMFile[] = [];
-  const rejected: { name: string; reason: string }[] = [];
+    for (const file of files) {
+      if (file.size > 5 * 1024 * 1024) {
+        rejected.push(`${file.name} (too large)`);
+        continue;
+      }
 
-  for (const f of files) {
-    const okType = allowed.has(f.type);
-    const okSize = f.size <= MAX;
-
-    if (okType && okSize) {
-      const meta: KMFile = {
-        name: f.name,
-        size: f.size,
-        type: f.type,
+      accepted.push({
+        name: file.name,
+        size: file.size,
+        type: file.type,
         uploadedAt: new Date().toISOString(),
-      };
-      // newest first
-      recentFiles.unshift(meta);
-      accepted.push(meta);
-    } else {
-      rejected.push({
-        name: f.name,
-        reason: !okType ? "type" : "size",
       });
     }
-  }
 
-  return NextResponse.json({ ok: true, accepted, rejected });
-}
+    recentFiles.push(...accepted);
+    return NextResponse.json({ ok: true, accepted, rejected });
+  } catch (err: any) {
+    return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
+  }
+        }
