@@ -1,41 +1,44 @@
+// app/api/upload/route.ts
 import { NextResponse } from "next/server";
-import { recentFiles } from "../../../lib/store";
+import { recentFiles, KMFile } from "@/lib/store";
 
 export async function POST(req: Request) {
   const form = await req.formData();
   const files = form.getAll("files") as File[];
 
   if (!files || files.length === 0) {
-    return NextResponse.json({ ok: false, error: "No files received" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "No files found" }, { status: 400 });
   }
 
-  const allowed = [
+  // allowlist + limits
+  const allowed = new Set([
     "application/pdf",
     "text/plain",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ]; // PDF, TXT, DOCX
-  const max = 10 * 1024 * 1024; // 10 MB
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+  ]);
+  const MAX = 10 * 1024 * 1024; // 10 MB
 
-  const accepted: any[] = [];
-  const rejected: any[] = [];
+  const accepted: KMFile[] = [];
+  const rejected: { name: string; reason: string }[] = [];
 
   for (const f of files) {
-    const okType = allowed.includes(f.type);
-    const okSize = f.size <= max;
+    const okType = allowed.has(f.type);
+    const okSize = f.size <= MAX;
 
     if (okType && okSize) {
-      recentFiles.unshift({
+      const meta: KMFile = {
         name: f.name,
         size: f.size,
         type: f.type,
         uploadedAt: new Date().toISOString(),
-      });
-      if (recentFiles.length > 20) recentFiles.length = 20; // keep latest 20
-      accepted.push({ name: f.name, size: f.size, type: f.type });
+      };
+      // newest first
+      recentFiles.unshift(meta);
+      accepted.push(meta);
     } else {
       rejected.push({
         name: f.name,
-        reason: !okType ? "type-not-allowed" : "size-too-large",
+        reason: !okType ? "type" : "size",
       });
     }
   }
