@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { recentFiles } from "@/lib/store";
+import { recentFiles } from "../../../lib/store";
 
 export async function GET() {
   return NextResponse.json({ ok: true, files: recentFiles });
