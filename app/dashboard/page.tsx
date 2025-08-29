@@ -1,182 +1,159 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useRef, useEffect } from "react";
 
-type KMFile = {
+type UploadedMeta = {
   name: string;
   size: number;
-  type: string;
   uploadedAt: string;
 };
 
-export default function Dashboard() {
-  const [files, setFiles] = useState<KMFile[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [panelOpen, setPanelOpen] = useState(true);
+export default function DashboardPage() {
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [files, setFiles] = useState<UploadedMeta[]>([]);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
-  async function loadFiles() {
-    try {
-      setError(null);
-      const res = await fetch("/api/files", { cache: "no-store" });
-      const data = await res.json();
-      if (data.ok) setFiles(data.files || []);
-    } catch {
-      setError("Couldn't refresh files");
-    }
-  }
-
+  // 🟢 Fetch files from API on load
   useEffect(() => {
-    loadFiles();
+    refreshFiles();
   }, []);
 
-  async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
+  async function refreshFiles() {
+    try {
+      const res = await fetch("/api/files");
+      const data = await res.json();
+      if (data.ok) setFiles(data.files);
+    } catch (e) {
+      console.error("Failed to fetch files", e);
+    }
+  }
+
+  // 🟢 Upload handler
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const form = e.currentTarget;
-    const fd = new FormData(form);
-    if (![...fd.keys()].includes("files")) {
-      const input = form.querySelector<HTMLInputElement>('input[type="file"][name="files"]');
-      if (input && input.files && input.files.length > 0) {
-        for (const f of Array.from(input.files)) fd.append("files", f);
-      }
+    setError(null);
+
+    const fileInput = inputRef.current;
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+      setError("Please choose a file first.");
+      return;
     }
 
-    setLoading(true);
-    setError(null);
+    const form = new FormData();
+    for (let i = 0; i < fileInput.files.length; i++) {
+      form.append("files", fileInput.files[i]);
+    }
+
+    setBusy(true);
     try {
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setError(data.error || "Upload failed");
+      } else {
+        await refreshFiles();
+        if (inputRef.current) inputRef.current.value = "";
+      }
+    } catch (err) {
+      setError("Unexpected error during upload.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 🟢 Delete handler
+  async function handleDelete(name: string) {
+    if (!confirm(`Delete file "${name}"?`)) return;
+
+    try {
+      const res = await fetch(`/api/files/${encodeURIComponent(name)}`, {
+        method: "DELETE",
+      });
       const data = await res.json();
       if (data.ok) {
-        setFiles(data.files || []);
-        setPanelOpen(true);
-        (form.reset as any)?.();
+        await refreshFiles();
       } else {
-        setError(data.error || "Upload failed");
+        alert("Delete failed: " + (data.error || "Unknown error"));
       }
-    } catch {
-      setError("Upload failed");
-    } finally {
-      setLoading(false);
+    } catch (err) {
+      alert("Delete request failed.");
     }
-  }
-
-  async function handleRefresh() {
-    await loadFiles();
-    setPanelOpen(true);
-  }
-
-  async function handleDelete(name: string) {
-    const url = new URL("/api/files", window.location.origin);
-    url.searchParams.set("name", name);
-    const res = await fetch(url.toString(), { method: "DELETE" });
-    const data = await res.json();
-    if (data.ok) loadFiles();
   }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6">Dashboard</h1>
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4">📂 Dashboard</h1>
 
-      <form onSubmit={handleUpload} className="flex flex-col sm:flex-row gap-3 mb-3">
+      {/* Upload form */}
+      <form onSubmit={onSubmit} className="space-y-4 mb-6">
         <input
           type="file"
-          name="files"
+          ref={inputRef}
           multiple
-          className="file:mr-3 file:px-3 file:py-2 file:rounded file:border-0 file:bg-slate-700 file:text-white file:cursor-pointer"
+          className="block w-full text-sm text-slate-300 file:mr-4 file:py-2 file:px-4
+                     file:rounded-full file:border-0 file:text-sm file:font-semibold
+                     file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100"
         />
-        <div className="flex gap-2">
-          <button
-            type="submit"
-            disabled={loading}
-            className="px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-60"
-          >
-            {loading ? "Uploading..." : "Upload"}
-          </button>
-          <button
-            type="button"
-            onClick={handleRefresh}
-            className="px-4 py-2 rounded bg-slate-600 text-white"
-          >
-            Refresh
-          </button>
-        </div>
+        <button
+          type="submit"
+          disabled={busy}
+          className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {busy ? "Uploading..." : "Upload"}
+        </button>
       </form>
 
-      <p className="text-sm text-slate-400 mb-4">
-        Allowed: PDF, DOCX, TXT • Max 10 files • ≤ 10 MB each
-      </p>
+      {error && <div className="text-red-500 mb-4">{error}</div>}
 
-      {error && <p className="text-sm text-red-400 mb-2">{error}</p>}
-
-      <div className="border border-slate-700 rounded-xl overflow-hidden">
-        <div
-          className="flex items-center justify-between bg-slate-800/60 px-4 py-3 cursor-pointer"
-          onClick={() => setPanelOpen((v) => !v)}
-          aria-expanded={panelOpen}
-        >
-          <div className="font-semibold">Recent uploads</div>
-          <div className="text-sm text-slate-400">
-            {files.length} item{files.length !== 1 ? "s" : ""} • {panelOpen ? "Hide" : "Show"}
-          </div>
+      {/* File list */}
+      {files.length === 0 ? (
+        <div className="text-slate-400">
+          No files yet. Upload one to see it here.
         </div>
-
-        {panelOpen && (
-          <div className="p-4">
-            {files.length === 0 ? (
-              <div className="text-slate-400">No files yet. Upload one to see it here.</div>
-            ) : (
-              <ul className="space-y-3">
-                {files.map((f) => (
-                  <li
-                    key={f.name}
-                    className="relative border border-slate-700 rounded-lg px-3 py-2 group"
-                  >
-                    {/* ❌ Cross at top-right */}
-                    <button
-                      onClick={() => handleDelete(f.name)}
-                      className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-80 hover:opacity-100"
-                      title="Remove file"
-                    >
-                      ×
-                    </button>
-
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{f.name}</div>
-                      <div className="text-xs text-slate-400">
-                        {(f.size / 1024).toFixed(1)} KB • {new Date(f.uploadedAt).toLocaleString()}
-                      </div>
-                    </div>
-                    <div className="mt-2">
-                      <a
-                        className="px-2 py-1 text-sm rounded bg-slate-700 text-white"
-                        href={`/api/files/${encodeURIComponent(f.name)}`}
-                        target="_blank"
-                      >
-                        Open
-                      </a>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            <div className="mt-4 flex gap-2">
+      ) : (
+        <ul className="space-y-3">
+          {files.map((f) => (
+            <li
+              key={f.name}
+              className="relative group border border-slate-700 rounded-lg px-3 py-2 bg-slate-800/40"
+            >
+              {/* ❎ hover par dikhne wala cross (desktop), mobile par always visible */}
               <button
-                onClick={() => setPanelOpen(false)}
-                className="px-4 py-2 rounded bg-slate-700 text-white"
+                onClick={() => handleDelete(f.name)}
+                className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-6 h-6 
+                           flex items-center justify-center opacity-0 group-hover:opacity-100 
+                           hover:bg-red-700 transition"
+                title="Remove file"
+                aria-label={`Remove ${f.name}`}
               >
-                Done
+                ×
               </button>
-              <button
-                onClick={handleRefresh}
-                className="px-4 py-2 rounded bg-slate-600 text-white"
-              >
-                Reload list
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+
+              <div className="min-w-0">
+                <div className="truncate font-medium">{f.name}</div>
+                <div className="text-xs text-slate-400">
+                  {(f.size / 1024).toFixed(1)} KB •{" "}
+                  {new Date(f.uploadedAt).toLocaleString()}
+                </div>
+              </div>
+
+              <div className="mt-2">
+                <a
+                  className="px-2 py-1 text-sm rounded bg-slate-700 text-white"
+                  href={`/api/files/${encodeURIComponent(f.name)}`}
+                  target="_blank"
+                >
+                  Open
+                </a>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
-      }
+    }
