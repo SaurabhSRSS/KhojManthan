@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { recentFiles } from "@/lib/store";
+import { recentFiles } from "../../../lib/store";
 
 export async function POST(req: Request) {
   const form = await req.formData();
