@@ -1,143 +1,226 @@
+// app/dashboard/page.tsx
 'use client';
 
-import { useState, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-type Queued = { id: string; file: File };
+type KMFile = {
+  name: string;
+  size: number;
+  type: string;
+  uploadedAt: string;
+};
 
 export default function DashboardPage() {
-  const [queue, setQueue] = useState<Queued[]>([]);
+  const [picked, setPicked] = useState<File[]>([]);
+  const [recent, setRecent] = useState<KMFile[]>([]);
   const [busy, setBusy] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
-  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    // nayi selection ko queue me merge karo (duplicates hatao by name+size+lastModified)
-    const incoming: Queued[] = Array.from(files).map((f) => ({
-      id: `${f.name}-${f.size}-${f.lastModified}`,
-      file: f,
-    }));
-
-    setQueue((prev) => {
-      const seen = new Set(prev.map((q) => q.id));
-      const merged = [...prev];
-      for (const q of incoming) if (!seen.has(q.id)) merged.push(q);
-      return merged;
-    });
-
-    // mobile browsers me re-pick allow karne ke liye input reset
-    e.currentTarget.value = '';
-  }
-
-  function removeOne(id: string) {
-    setQueue((prev) => prev.filter((q) => q.id !== id));
-  }
-
-  function clearAll() {
-    setQueue([]);
-    inputRef.current?.blur();
-  }
-
-  async function uploadAll(e: React.FormEvent) {
-    e.preventDefault();
-    if (busy || queue.length === 0) return;
-
+  // read from API on mount & after actions
+  const refresh = async () => {
     try {
-      setBusy(true);
+      const r = await fetch('/api/files', { cache: 'no-store' });
+      const j = await r.json();
+      if (j.ok) setRecent(j.files || []);
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  // formatted sizes
+  const fmt = (n: number) =>
+    n >= 1024 * 1024
+      ? `${(n / (1024 * 1024)).toFixed(1)} MB`
+      : n >= 1024
+      ? `${(n / 1024).toFixed(1)} KB`
+      : `${n} B`;
+
+  // build UI list for picked files (before upload)
+  const pickedList = useMemo(
+    () =>
+      picked.map((f, i) => (
+        <li key={`${f.name}-${i}`} className="flex items-center gap-2">
+          <span className="truncate">{f.name}</span>
+          <span className="text-xs opacity-70">· {fmt(f.size)}</span>
+          <button
+            className="ml-2 rounded-full border px-2 text-xs hover:bg-red-600/10 hover:text-red-600"
+            onClick={() =>
+              setPicked((prev) => prev.filter((_, idx) => idx !== i))
+            }
+            aria-label="Remove from queue"
+            title="Remove"
+          >
+            ×
+          </button>
+        </li>
+      )),
+    [picked]
+  );
+
+  // drag & drop (progressive enhancement)
+  const onDrop = async (ev: React.DragEvent<HTMLDivElement>) => {
+    ev.preventDefault();
+    const files = Array.from(ev.dataTransfer.files || []);
+    if (!files.length) return;
+    setPicked((prev) => [
+      ...prev,
+      ...files.filter((f) =>
+        ['application/pdf', 'text/plain', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(
+          f.type
+        )
+      ),
+    ]);
+  };
+
+  const onUpload = async () => {
+    if (!picked.length) {
+      setMsg('Please choose one or more files first.');
+      return;
+    }
+    setBusy(true);
+    setMsg(null);
+    try {
       const fd = new FormData();
-      for (const q of queue) fd.append('files', q.file);
+      picked.forEach((f) => fd.append('files', f)); // IMPORTANT: same field name 'files'
 
-      const res = await fetch('/api/upload', { method: 'POST', body: fd });
-      const json = await res.json();
+      const r = await fetch('/api/upload', {
+        method: 'POST',
+        body: fd,
+      });
+      const j = await r.json();
 
-      if (!res.ok || !json?.ok) {
-        alert(json?.error ?? 'Upload failed');
-        return;
+      if (!j.ok) {
+        setMsg(j.error || 'Upload failed.');
+      } else {
+        setMsg(`Uploaded ${j.accepted?.length ?? picked.length} file(s).`);
+        setPicked([]);
+        inputRef.current?.value && (inputRef.current.value = '');
+        await refresh(); // make it persistent on the list
       }
-
-      // success → queue clear & optional toast
-      setQueue([]);
-      alert('Uploaded!');
-    } catch (err) {
-      console.error(err);
-      alert('Network error');
+    } catch (e) {
+      setMsg('Network error.');
     } finally {
       setBusy(false);
     }
-  }
+  };
+
+  const onDelete = async (name: string) => {
+    try {
+      await fetch(`/api/files?name=${encodeURIComponent(name)}`, {
+        method: 'DELETE',
+      });
+      await refresh();
+    } catch {}
+  };
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-8">
-      <h1 className="text-4xl font-bold mb-6">Dashboard</h1>
-
-      <form onSubmit={uploadAll} encType="multipart/form-data" className="space-y-4">
-        <div className="flex items-center gap-3">
-          <input
-            ref={inputRef}
-            id="file-input"
-            type="file"
-            name="files"
-            multiple                  // browser multi-select enable
-            accept=".pdf,.txt,.docx"  // optional
-            onChange={onPick}
-            className="block"
-          />
-          <button
-            type="submit"
-            disabled={busy || queue.length === 0}
-            className="rounded-md px-3 py-1.5 border border-white/20 hover:bg-white/10 disabled:opacity-50"
-          >
-            {busy ? 'Uploading…' : 'Upload'}
-          </button>
-          <button
-            type="button"
-            onClick={clearAll}
-            disabled={queue.length === 0 || busy}
-            className="rounded-md px-3 py-1.5 border border-white/10 hover:bg-white/5 disabled:opacity-50"
-          >
-            Clear
-          </button>
-        </div>
-
-        {/* Queue list with remove (❌) */}
-        <div className="rounded-xl border border-white/10 p-3">
-          <p className="mb-2 text-sm opacity-80">
-            Selected files ({queue.length}) — Allowed: PDF, DOCX, TXT • ≤ 10 MB each
-          </p>
-          {queue.length === 0 ? (
-            <p className="text-sm opacity-60">No files selected yet.</p>
-          ) : (
-            <ul className="space-y-2">
-              {queue.map((q) => (
-                <li
-                  key={q.id}
-                  className="group flex items-center justify-between gap-3 rounded-lg bg-white/5 px-3 py-2"
-                >
-                  <span className="truncate">
-                    {q.file.name} · {(q.file.size / 1024).toFixed(1)} KB
-                  </span>
-                  <button
-                    type="button"
-                    aria-label="Remove file"
-                    onClick={() => removeOne(q.id)}
-                    className="opacity-60 hover:opacity-100 transition rounded-md px-2 py-1 border border-white/10 group-hover:border-white/20"
-                  >
-                    ✕
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </form>
-
-      <section className="mt-8">
-        <h2 className="text-2xl font-semibold mb-3">Recent uploads</h2>
-        <p className="opacity-70 text-sm">
-          (Server-side list; storage plugin aayega to yahan se persist dikhayenge.)
+    <main className="mx-auto max-w-4xl px-4 py-10">
+      <section className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
+        <h1 className="text-3xl font-semibold">Dashboard</h1>
+        <p className="mt-2 opacity-80">
+          Upload your documents (PDF / DOCX / TXT). Storage plug-in next.
         </p>
+
+        <div
+          className="mt-4 rounded-xl border border-dashed border-white/20 p-4"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={onDrop}
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              name="files"
+              accept=".pdf,.txt,.docx"
+              className="block w-full max-w-xs cursor-pointer rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm"
+              onChange={(e) =>
+                setPicked((prev) => [
+                  ...prev,
+                  ...Array.from(e.target.files || []),
+                ])
+              }
+            />
+            <button
+              className="rounded-md border border-white/10 px-4 py-2 text-sm hover:bg-white/10 disabled:opacity-50"
+              onClick={onUpload}
+              disabled={busy}
+            >
+              {busy ? 'Uploading…' : 'Upload'}
+            </button>
+            <button
+              className="rounded-md border border-white/10 px-3 py-2 text-sm hover:bg-white/10"
+              onClick={refresh}
+            >
+              Refresh
+            </button>
+          </div>
+
+          {/* queued files (pre-upload) */}
+          {picked.length > 0 && (
+            <div className="mt-3">
+              <div className="mb-1 text-sm font-medium opacity-80">
+                In queue ({picked.length})
+              </div>
+              <ul className="space-y-1">{pickedList}</ul>
+            </div>
+          )}
+
+          {msg && <div className="mt-3 text-sm opacity-80">{msg}</div>}
+
+          <div className="mt-2 text-xs opacity-70">
+            Allowed: PDF, DOCX, TXT • Max 10 files • ≤ 10&nbsp;MB each
+          </div>
+        </div>
       </section>
+
+      {/* persistent list */}
+      <section className="mt-10">
+        <h2 className="text-2xl font-semibold">Recent uploads</h2>
+        {recent.length === 0 ? (
+          <p className="mt-3 opacity-70">
+            No files yet. Upload one to see it here.
+          </p>
+        ) : (
+          <ul className="mt-4 space-y-2">
+            {recent.map((f) => (
+              <li
+                key={`${f.name}-${f.uploadedAt}`}
+                className="group flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <div className="truncate">{f.name}</div>
+                  <div className="text-xs opacity-70">
+                    {fmt(f.size)} · {f.type} ·{' '}
+                    {new Date(f.uploadedAt).toLocaleString()}
+                  </div>
+                </div>
+
+                {/* hover/cross delete */}
+                <button
+                  className="ml-3 hidden rounded-full border px-2 text-sm text-red-500 hover:bg-red-500/10 group-hover:block"
+                  title="Delete"
+                  aria-label="Delete"
+                  onClick={() => onDelete(f.name)}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <div className="mt-6 text-sm">
+        <a className="underline" href="/">
+          Home
+        </a>
+      </div>
     </main>
   );
 }
