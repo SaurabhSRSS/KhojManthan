@@ -1,159 +1,143 @@
-"use client";
+'use client';
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from 'react';
 
-type UploadedMeta = {
-  name: string;
-  size: number;
-  uploadedAt: string;
-};
+type Queued = { id: string; file: File };
 
 export default function DashboardPage() {
+  const [queue, setQueue] = useState<Queued[]>([]);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [files, setFiles] = useState<UploadedMeta[]>([]);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // 🟢 Fetch files from API on load
-  useEffect(() => {
-    refreshFiles();
-  }, []);
+  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-  async function refreshFiles() {
-    try {
-      const res = await fetch("/api/files");
-      const data = await res.json();
-      if (data.ok) setFiles(data.files);
-    } catch (e) {
-      console.error("Failed to fetch files", e);
-    }
+    // nayi selection ko queue me merge karo (duplicates hatao by name+size+lastModified)
+    const incoming: Queued[] = Array.from(files).map((f) => ({
+      id: `${f.name}-${f.size}-${f.lastModified}`,
+      file: f,
+    }));
+
+    setQueue((prev) => {
+      const seen = new Set(prev.map((q) => q.id));
+      const merged = [...prev];
+      for (const q of incoming) if (!seen.has(q.id)) merged.push(q);
+      return merged;
+    });
+
+    // mobile browsers me re-pick allow karne ke liye input reset
+    e.currentTarget.value = '';
   }
 
-  // 🟢 Upload handler
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+  function removeOne(id: string) {
+    setQueue((prev) => prev.filter((q) => q.id !== id));
+  }
+
+  function clearAll() {
+    setQueue([]);
+    inputRef.current?.blur();
+  }
+
+  async function uploadAll(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
+    if (busy || queue.length === 0) return;
 
-    const fileInput = inputRef.current;
-    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
-      setError("Please choose a file first.");
-      return;
-    }
-
-    const form = new FormData();
-    for (let i = 0; i < fileInput.files.length; i++) {
-      form.append("files", fileInput.files[i]);
-    }
-
-    setBusy(true);
     try {
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: form,
-      });
-      const data = await res.json();
-      if (!data.ok) {
-        setError(data.error || "Upload failed");
-      } else {
-        await refreshFiles();
-        if (inputRef.current) inputRef.current.value = "";
+      setBusy(true);
+      const fd = new FormData();
+      for (const q of queue) fd.append('files', q.file);
+
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const json = await res.json();
+
+      if (!res.ok || !json?.ok) {
+        alert(json?.error ?? 'Upload failed');
+        return;
       }
+
+      // success → queue clear & optional toast
+      setQueue([]);
+      alert('Uploaded!');
     } catch (err) {
-      setError("Unexpected error during upload.");
+      console.error(err);
+      alert('Network error');
     } finally {
       setBusy(false);
     }
   }
 
-  // 🟢 Delete handler
-  async function handleDelete(name: string) {
-    if (!confirm(`Delete file "${name}"?`)) return;
-
-    try {
-      const res = await fetch(`/api/files/${encodeURIComponent(name)}`, {
-        method: "DELETE",
-      });
-      const data = await res.json();
-      if (data.ok) {
-        await refreshFiles();
-      } else {
-        alert("Delete failed: " + (data.error || "Unknown error"));
-      }
-    } catch (err) {
-      alert("Delete request failed.");
-    }
-  }
-
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">📂 Dashboard</h1>
+    <main className="mx-auto max-w-3xl px-4 py-8">
+      <h1 className="text-4xl font-bold mb-6">Dashboard</h1>
 
-      {/* Upload form */}
-      <form onSubmit={onSubmit} className="space-y-4 mb-6">
-        <input
-          type="file"
-          ref={inputRef}
-          multiple
-          className="block w-full text-sm text-slate-300 file:mr-4 file:py-2 file:px-4
-                     file:rounded-full file:border-0 file:text-sm file:font-semibold
-                     file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100"
-        />
-        <button
-          type="submit"
-          disabled={busy}
-          className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {busy ? "Uploading..." : "Upload"}
-        </button>
+      <form onSubmit={uploadAll} encType="multipart/form-data" className="space-y-4">
+        <div className="flex items-center gap-3">
+          <input
+            ref={inputRef}
+            id="file-input"
+            type="file"
+            name="files"
+            multiple                  // browser multi-select enable
+            accept=".pdf,.txt,.docx"  // optional
+            onChange={onPick}
+            className="block"
+          />
+          <button
+            type="submit"
+            disabled={busy || queue.length === 0}
+            className="rounded-md px-3 py-1.5 border border-white/20 hover:bg-white/10 disabled:opacity-50"
+          >
+            {busy ? 'Uploading…' : 'Upload'}
+          </button>
+          <button
+            type="button"
+            onClick={clearAll}
+            disabled={queue.length === 0 || busy}
+            className="rounded-md px-3 py-1.5 border border-white/10 hover:bg-white/5 disabled:opacity-50"
+          >
+            Clear
+          </button>
+        </div>
+
+        {/* Queue list with remove (❌) */}
+        <div className="rounded-xl border border-white/10 p-3">
+          <p className="mb-2 text-sm opacity-80">
+            Selected files ({queue.length}) — Allowed: PDF, DOCX, TXT • ≤ 10 MB each
+          </p>
+          {queue.length === 0 ? (
+            <p className="text-sm opacity-60">No files selected yet.</p>
+          ) : (
+            <ul className="space-y-2">
+              {queue.map((q) => (
+                <li
+                  key={q.id}
+                  className="group flex items-center justify-between gap-3 rounded-lg bg-white/5 px-3 py-2"
+                >
+                  <span className="truncate">
+                    {q.file.name} · {(q.file.size / 1024).toFixed(1)} KB
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="Remove file"
+                    onClick={() => removeOne(q.id)}
+                    className="opacity-60 hover:opacity-100 transition rounded-md px-2 py-1 border border-white/10 group-hover:border-white/20"
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </form>
 
-      {error && <div className="text-red-500 mb-4">{error}</div>}
-
-      {/* File list */}
-      {files.length === 0 ? (
-        <div className="text-slate-400">
-          No files yet. Upload one to see it here.
-        </div>
-      ) : (
-        <ul className="space-y-3">
-          {files.map((f) => (
-            <li
-              key={f.name}
-              className="relative group border border-slate-700 rounded-lg px-3 py-2 bg-slate-800/40"
-            >
-              {/* ❎ hover par dikhne wala cross (desktop), mobile par always visible */}
-              <button
-                onClick={() => handleDelete(f.name)}
-                className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-6 h-6 
-                           flex items-center justify-center opacity-0 group-hover:opacity-100 
-                           hover:bg-red-700 transition"
-                title="Remove file"
-                aria-label={`Remove ${f.name}`}
-              >
-                ×
-              </button>
-
-              <div className="min-w-0">
-                <div className="truncate font-medium">{f.name}</div>
-                <div className="text-xs text-slate-400">
-                  {(f.size / 1024).toFixed(1)} KB •{" "}
-                  {new Date(f.uploadedAt).toLocaleString()}
-                </div>
-              </div>
-
-              <div className="mt-2">
-                <a
-                  className="px-2 py-1 text-sm rounded bg-slate-700 text-white"
-                  href={`/api/files/${encodeURIComponent(f.name)}`}
-                  target="_blank"
-                >
-                  Open
-                </a>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+      <section className="mt-8">
+        <h2 className="text-2xl font-semibold mb-3">Recent uploads</h2>
+        <p className="opacity-70 text-sm">
+          (Server-side list; storage plugin aayega to yahan se persist dikhayenge.)
+        </p>
+      </section>
+    </main>
   );
-    }
+}
