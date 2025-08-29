@@ -1,113 +1,127 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
-type FileRow = { name: string; size: number; type: string; uploadedAt: string };
+type KMFile = {
+  name: string;
+  size: number;
+  type: string;
+  uploadedAt: string;
+};
 
-export default function Dashboard() {
-  const [files, setFiles] = useState<FileRow[]>([]);
+export default function DashboardPage() {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [files, setFiles] = useState<KMFile[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
 
-  async function loadList() {
-    const res = await fetch("/api/files", { cache: "no-store" });
-    const data = await res.json();
-    if (data?.ok) setFiles(data.files || []);
-  }
-
-  useEffect(() => { loadList(); }, []);
-
-  async function onUpload(e: React.FormEvent) {
-    e.preventDefault();
-    if (!inputRef.current || !inputRef.current.files?.length) {
-      setMsg("Choose at least one file.");
-      return;
-    }
-    setMsg(null);
-    setBusy(true);
-
+  const onUpload = async () => {
     try {
-      const form = new FormData();
-      // IMPORTANT: "files" (plural) field name
-      Array.from(inputRef.current.files).forEach(f => form.append("files", f));
+      setError(null);
 
-      const res = await fetch("/api/upload", { method: "POST", body: form });
-      const data = await res.json();
-
-      if (!res.ok || !data?.ok) {
-        setMsg(data?.error || "Upload failed.");
-      } else {
-        const rej = (data.rejected || []) as Array<{ name: string; reason: string }>;
-        if (rej.length) {
-          setMsg(`Some files rejected: ${rej.map(r => `${r.name} (${r.reason})`).join(", ")}`);
-        } else {
-          setMsg("Uploaded successfully.");
-        }
-        await loadList();
+      const fs = inputRef.current?.files;
+      if (!fs || fs.length === 0) {
+        setError("Please choose at least one file.");
+        return;
       }
-    } catch (err: any) {
-      setMsg(err?.message || "Network error.");
+
+      const fd = new FormData();
+      for (const f of Array.from(fs)) fd.append("files", f);
+
+      setBusy(true);
+
+      // 👇 IMPORTANT: leading slash must be present
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: fd,
+      });
+
+      // If server replied with HTML (404/500), avoid JSON.parse crash
+      const ct = res.headers.get("content-type") || "";
+      if (!ct.includes("application/json")) {
+        const txt = await res.text();
+        throw new Error(`Server returned ${res.status}.`);
+      }
+
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "Upload failed");
+
+      setFiles(data.files || []);
+      if (inputRef.current) inputRef.current.value = "";
+    } catch (e: any) {
+      setError(e?.message || "Unexpected error");
     } finally {
       setBusy(false);
-      if (inputRef.current) inputRef.current.value = "";
     }
-  }
+  };
 
-  async function onDelete(name: string) {
-    await fetch(`/api/files?name=${encodeURIComponent(name)}`, { method: "DELETE" });
-    await loadList();
-  }
+  const loadList = async () => {
+    try {
+      setError(null);
+      const res = await fetch("/api/files/"); // list all
+      const ct = res.headers.get("content-type") || "";
+      if (!ct.includes("application/json")) {
+        const txt = await res.text();
+        throw new Error(`Server returned ${res.status}.`);
+      }
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "Failed to load");
+      setFiles(data.files || []);
+    } catch (e: any) {
+      setError(e?.message || "Unexpected error");
+    }
+  };
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-8 text-zinc-100">
+    <main className="container mx-auto px-4 py-10">
       <h1 className="text-4xl font-bold mb-6">Dashboard</h1>
-      <p className="mb-4">Upload your documents (PDF / DOCX / TXT). Storage plug-in next.</p>
+      <p className="mb-4">
+        Upload your documents (PDF / DOCX / TXT). Storage plug-in next.
+      </p>
 
-      <form onSubmit={onUpload} className="rounded-2xl bg-zinc-900/40 p-4 mb-8">
+      <div className="flex items-center gap-3 mb-2">
         <input
           ref={inputRef}
           type="file"
           multiple
-          accept=".pdf,.txt,.docx"
-          className="mb-3 block"
+          accept=".pdf,.docx,.txt,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         />
         <button
-          type="submit"
+          onClick={onUpload}
           disabled={busy}
-          className="rounded-xl px-4 py-2 bg-indigo-600 disabled:opacity-60"
+          className="px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-50"
         >
           {busy ? "Uploading..." : "Upload"}
         </button>
-        {msg && <div className="mt-3 text-sm text-amber-300">{msg}</div>}
-        <div className="mt-2 text-xs text-zinc-400">
-          Allowed: PDF, DOCX, TXT • Max 10 files • ≤ 10 MB each
-        </div>
-      </form>
+        <button
+          onClick={loadList}
+          className="px-3 py-2 rounded border"
+          title="Refresh list"
+        >
+          Refresh
+        </button>
+      </div>
+
+      {error && (
+        <div className="text-red-400 text-sm mb-3">{error}</div>
+      )}
+
+      <p className="text-sm text-neutral-400 mb-6">
+        Allowed: PDF, DOCX, TXT • Max 10 files • ≤ 10 MB each
+      </p>
 
       <h2 className="text-2xl font-semibold mb-3">Recent uploads</h2>
       {files.length === 0 ? (
-        <div className="text-zinc-400">No files yet. Upload one to see it here.</div>
+        <p className="text-neutral-400">No files yet. Upload one to see it here.</p>
       ) : (
-        <ul className="space-y-2">
-          {files.map(f => (
-            <li key={f.name} className="rounded-xl bg-zinc-900/40 p-3 flex items-center justify-between">
-              <div className="mr-3">
-                <div className="font-medium">{f.name}</div>
-                <div className="text-xs text-zinc-400">
-                  {f.type} · {(f.size / 1024).toFixed(1)} KB · {new Date(f.uploadedAt).toLocaleString()}
-                </div>
-              </div>
-              <button
-                onClick={() => onDelete(f.name)}
-                className="text-sm rounded-lg px-3 py-1 bg-red-600/80"
-              >
-                Delete
-              </button>
+        <ul className="list-disc pl-6 space-y-1">
+          {files.map((f) => (
+            <li key={f.name}>
+              {f.name} · {(f.size / 1024).toFixed(1)} KB
             </li>
           ))}
         </ul>
       )}
     </main>
   );
-}
+      }
