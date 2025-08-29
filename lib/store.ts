@@ -5,3 +5,6 @@ export type KMFile = {
   type: string;
   uploadedAt: string;
 };
+
+// Memory me ek array rakhenge recent files ka
+export let recentFiles: KMFile[] = [];
