@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 type KMFile = {
   name: string;
@@ -9,119 +9,174 @@ type KMFile = {
   uploadedAt: string;
 };
 
-export default function DashboardPage() {
-  const inputRef = useRef<HTMLInputElement>(null);
+export default function Dashboard() {
   const [files, setFiles] = useState<KMFile[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
-  const onUpload = async () => {
+  async function loadFiles() {
     try {
       setError(null);
-
-      const fs = inputRef.current?.files;
-      if (!fs || fs.length === 0) {
-        setError("Please choose at least one file.");
-        return;
-      }
-
-      const fd = new FormData();
-      for (const f of Array.from(fs)) fd.append("files", f);
-
-      setBusy(true);
-
-      // 👇 IMPORTANT: leading slash must be present
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: fd,
-      });
-
-      // If server replied with HTML (404/500), avoid JSON.parse crash
-      const ct = res.headers.get("content-type") || "";
-      if (!ct.includes("application/json")) {
-        const txt = await res.text();
-        throw new Error(`Server returned ${res.status}.`);
-      }
-
+      const res = await fetch("/api/files", { cache: "no-store" });
       const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Upload failed");
+      if (data.ok) setFiles(data.files || []);
+    } catch {
+      setError("Couldn't refresh files");
+    }
+  }
 
-      setFiles(data.files || []);
-      if (inputRef.current) inputRef.current.value = "";
-    } catch (e: any) {
-      setError(e?.message || "Unexpected error");
+  useEffect(() => {
+    loadFiles();
+  }, []);
+
+  async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    if (![...fd.keys()].includes("files")) {
+      const input = form.querySelector<HTMLInputElement>('input[type="file"][name="files"]');
+      if (input && input.files && input.files.length > 0) {
+        for (const f of Array.from(input.files)) fd.append("files", f);
+      }
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const data = await res.json();
+      if (data.ok) {
+        setFiles(data.files || []);
+        setPanelOpen(true);
+        (form.reset as any)?.();
+      } else {
+        setError(data.error || "Upload failed");
+      }
+    } catch {
+      setError("Upload failed");
     } finally {
-      setBusy(false);
+      setLoading(false);
     }
-  };
+  }
 
-  const loadList = async () => {
-    try {
-      setError(null);
-      const res = await fetch("/api/files/"); // list all
-      const ct = res.headers.get("content-type") || "";
-      if (!ct.includes("application/json")) {
-        const txt = await res.text();
-        throw new Error(`Server returned ${res.status}.`);
-      }
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Failed to load");
-      setFiles(data.files || []);
-    } catch (e: any) {
-      setError(e?.message || "Unexpected error");
-    }
-  };
+  async function handleRefresh() {
+    await loadFiles();
+    setPanelOpen(true);
+  }
+
+  async function handleDelete(name: string) {
+    const url = new URL("/api/files", window.location.origin);
+    url.searchParams.set("name", name);
+    const res = await fetch(url.toString(), { method: "DELETE" });
+    const data = await res.json();
+    if (data.ok) loadFiles();
+  }
 
   return (
-    <main className="container mx-auto px-4 py-10">
-      <h1 className="text-4xl font-bold mb-6">Dashboard</h1>
-      <p className="mb-4">
-        Upload your documents (PDF / DOCX / TXT). Storage plug-in next.
-      </p>
+    <div className="p-6 max-w-3xl mx-auto">
+      <h1 className="text-3xl font-bold mb-6">Dashboard</h1>
 
-      <div className="flex items-center gap-3 mb-2">
+      <form onSubmit={handleUpload} className="flex flex-col sm:flex-row gap-3 mb-3">
         <input
-          ref={inputRef}
           type="file"
+          name="files"
           multiple
-          accept=".pdf,.docx,.txt,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          className="file:mr-3 file:px-3 file:py-2 file:rounded file:border-0 file:bg-slate-700 file:text-white file:cursor-pointer"
         />
-        <button
-          onClick={onUpload}
-          disabled={busy}
-          className="px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-50"
-        >
-          {busy ? "Uploading..." : "Upload"}
-        </button>
-        <button
-          onClick={loadList}
-          className="px-3 py-2 rounded border"
-          title="Refresh list"
-        >
-          Refresh
-        </button>
-      </div>
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            disabled={loading}
+            className="px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-60"
+          >
+            {loading ? "Uploading..." : "Upload"}
+          </button>
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className="px-4 py-2 rounded bg-slate-600 text-white"
+          >
+            Refresh
+          </button>
+        </div>
+      </form>
 
-      {error && (
-        <div className="text-red-400 text-sm mb-3">{error}</div>
-      )}
-
-      <p className="text-sm text-neutral-400 mb-6">
+      <p className="text-sm text-slate-400 mb-4">
         Allowed: PDF, DOCX, TXT • Max 10 files • ≤ 10 MB each
       </p>
 
-      <h2 className="text-2xl font-semibold mb-3">Recent uploads</h2>
-      {files.length === 0 ? (
-        <p className="text-neutral-400">No files yet. Upload one to see it here.</p>
-      ) : (
-        <ul className="list-disc pl-6 space-y-1">
-          {files.map((f) => (
-            <li key={f.name}>
-              {f.name} · {(f.size / 1024).toFixed(1)} KB
-            </li>
-          ))}
-        </ul>
-      )}
-    </main>
+      {error && <p className="text-sm text-red-400 mb-2">{error}</p>}
+
+      <div className="border border-slate-700 rounded-xl overflow-hidden">
+        <div
+          className="flex items-center justify-between bg-slate-800/60 px-4 py-3 cursor-pointer"
+          onClick={() => setPanelOpen((v) => !v)}
+          aria-expanded={panelOpen}
+        >
+          <div className="font-semibold">Recent uploads</div>
+          <div className="text-sm text-slate-400">
+            {files.length} item{files.length !== 1 ? "s" : ""} • {panelOpen ? "Hide" : "Show"}
+          </div>
+        </div>
+
+        {panelOpen && (
+          <div className="p-4">
+            {files.length === 0 ? (
+              <div className="text-slate-400">No files yet. Upload one to see it here.</div>
+            ) : (
+              <ul className="space-y-3">
+                {files.map((f) => (
+                  <li
+                    key={f.name}
+                    className="relative border border-slate-700 rounded-lg px-3 py-2 group"
+                  >
+                    {/* ❌ Cross at top-right */}
+                    <button
+                      onClick={() => handleDelete(f.name)}
+                      className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-80 hover:opacity-100"
+                      title="Remove file"
+                    >
+                      ×
+                    </button>
+
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{f.name}</div>
+                      <div className="text-xs text-slate-400">
+                        {(f.size / 1024).toFixed(1)} KB • {new Date(f.uploadedAt).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="mt-2">
+                      <a
+                        className="px-2 py-1 text-sm rounded bg-slate-700 text-white"
+                        href={`/api/files/${encodeURIComponent(f.name)}`}
+                        target="_blank"
+                      >
+                        Open
+                      </a>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => setPanelOpen(false)}
+                className="px-4 py-2 rounded bg-slate-700 text-white"
+              >
+                Done
+              </button>
+              <button
+                onClick={handleRefresh}
+                className="px-4 py-2 rounded bg-slate-600 text-white"
+              >
+                Reload list
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
       }
